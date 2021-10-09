@@ -20,22 +20,17 @@ contract Zap is Ownable, IZap {
 
     event ImplementationChanged(IZapHandler indexed oldImplementation, IZapHandler indexed newImplementation);
 
-    modifier nonReentrant() {
-        require(from == address(1), "!reentrancy");
-        _;
-    }
-
     // to parameter? yes.
-    function zapERC20(IERC20 fromToken, IERC20 toToken, uint256 amount, uint256 minReceived) external nonReentrant override returns (uint256 received) {
+    function zapERC20(IERC20 fromToken, IERC20 toToken, address to, uint256 amount, uint256 minReceived) external override returns (uint256 received) {
         from = msg.sender;
         pendingToken = fromToken;
         remaining = amount + 1;
 
-        uint256 beforeBal = toToken.balanceOf(msg.sender);
-        implementation.convertERC20(fromToken, toToken, msg.sender, amount);
+        uint256 beforeBal = toToken.balanceOf(to);
+        implementation.convertERC20(fromToken, toToken, to, amount);
         from = address(1);
-        
-        uint256 receivedTokens = toToken.balanceOf(msg.sender) - beforeBal;
+
+        uint256 receivedTokens = toToken.balanceOf(to) - beforeBal; 
 
         require(receivedTokens >= minReceived, "!minimum not received");
         // Unfortunately no event to save gas.
@@ -55,10 +50,11 @@ contract Zap is Ownable, IZap {
         unchecked {
             remaining -= amount; // Safeguard that the implementation cannot overdraft
         }
+
         pendingToken.safeTransferFrom(from, to, amount);
     }
 
-    function setImplementation(IZapHandler _implementation) external nonReentrant onlyOwner {
+    function setImplementation(IZapHandler _implementation) external onlyOwner {
         IZapHandler oldImplementation = implementation;
         implementation = _implementation;
 

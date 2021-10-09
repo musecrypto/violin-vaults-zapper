@@ -46,8 +46,6 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
     IERC20 public mainToken;
 
     mapping(IERC20 => mapping(IERC20 => TokenEdgeType)) public tokenEdgeTypes;
-    mapping(IERC20 => bool) isToken;
-    mapping(IERC20 => bool) public isSet;
 
     mapping(IERC20 => PairInfo) public pairInfo;
 
