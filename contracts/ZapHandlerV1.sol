@@ -13,7 +13,6 @@ import "./interfaces/IZapHandler.sol";
 import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 
 import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
-import "hardhat/console.sol";
 
 contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -44,6 +43,8 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         PAIR_TO_PAIR
     }
 
+    IERC20 public mainToken;
+
     mapping(IERC20 => mapping(IERC20 => TokenEdgeType)) public tokenEdgeTypes;
     mapping(IERC20 => bool) isToken;
     mapping(IERC20 => bool) public isSet;
@@ -70,6 +71,8 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         IERC20 indexed to,
         bool indexed alreadyExists
     );
+
+    event MainTokenSet(IERC20 indexed mainToken);
 
     //** ROUTING **/
     function convertERC20(
@@ -220,8 +223,8 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
     ) internal {
         PairInfo memory fromToken = pairInfo[fromToken];
         PairInfo memory toInfo = pairInfo[toToken];
-
-        // TODO: PAIR TO PAIR NOT IMPLEMENTED
+        // TODO: PAIR TO PAIR IMPLEMENTAITON
+        revert("unimplemented feature: pair to pair routing");
     }
 
     //** ROUTE HANDLERS **/
@@ -235,9 +238,8 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
     ) internal returns (RouteStep memory lastStep) {
         RouteStep[] memory route = routes[from][to];
         if (route.length == 0) {
-            revert(
-                "Route length zero, TODO: generate new route automatically."
-            );
+            generateAutomaticRoute(from, to);
+            route = routes[from][to];
         }
 
         for (uint256 i = 0; i < route.length; i++) {
@@ -301,6 +303,21 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
 
     //** CONFIGURATION **/
 
+    function generateAutomaticRoute(
+        IERC20 from,
+        IERC20 to
+    ) internal {
+        IERC20 main = mainToken;
+        require(from != main && to != main, "!no route found");
+        address[] memory route = new address[](5);
+        route[0] = address(from);
+        route[1] = address(0);
+        route[2] = address(main);
+        route[3] = address(0);
+        route[4] = address(to);
+        _setRoute(from, to, route);
+    }
+
     function setFactory(
         address factory,
         uint32 amountsOutNominator,
@@ -340,6 +357,14 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         IERC20 to,
         address[] memory inputRoute
     ) external onlyOwner {
+        _setRoute(from, to, inputRoute);
+    }
+
+    function _setRoute(
+        IERC20 from,
+        IERC20 to,
+        address[] memory inputRoute
+    ) internal {
         bool alreadyExists = routes[from][to].length > 0;
 
         generateRoute(from, to, inputRoute);
@@ -347,6 +372,11 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
 
         generateInvertedRoute(from, to);
         emit RouteAdded(to, from, alreadyExists);
+    }
+
+    function setMainToken(IERC20 _mainToken) external onlyOwner {
+        mainToken = _mainToken;
+        emit MainTokenSet(_mainToken);
     }
 
     //** ROUTE GENERATION **/
@@ -430,6 +460,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
     }
 
     //** TOKEN INFO GENERATION **/
+
     function generateEdgeType(IERC20 from, IERC20 to)
         internal
         returns (TokenEdgeType)
