@@ -52,9 +52,6 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
     EnumerableSet.AddressSet factorySet;
     mapping(address => Factory) public factories;
 
-    // Example route: token0, factory, intermediary factory token1, factory == 0 signals using existing routing.
-    // mapping(IERC20 => mapping(IERC20 => address[])) public routes;
-
     mapping(IERC20 => mapping(IERC20 => RouteStep[])) public routes;
 
     event FactorySet(
@@ -99,7 +96,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         IERC20 toToken,
         address recipient,
         uint256 amount
-    ) internal {
+    ) private {
         RouteStep memory lastStep = handleRoute(
             getFromZapperStep(fromToken),
             fromToken,
@@ -115,7 +112,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         IERC20 toToken,
         address recipient,
         uint256 amount
-    ) internal {
+    ) private {
         PairInfo memory fromInfo = pairInfo[fromToken];
 
         IZap(msg.sender).pullAmountTo(address(fromToken), amount);
@@ -153,13 +150,11 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         IERC20 toToken,
         address recipient,
         uint256 amount
-    ) internal {
+    ) private {
         PairInfo memory toInfo = pairInfo[toToken];
-        // from coin / to LP [ ALMOST DONE ]
         uint256 amount0 = amount / 2;
         uint256 amount1 = amount - amount0;
 
-        // TODO: Optimize to give remaining skim to admin!
         RouteStep memory lastStepToken0;
         if (fromToken == toInfo.token0) {
             lastStepToken0 = getFromZapperStep(fromToken);
@@ -218,7 +213,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         IERC20 toToken,
         address recipient,
         uint256 amount
-    ) internal {
+    ) private {
         PairInfo memory fromToken = pairInfo[fromToken];
         PairInfo memory toInfo = pairInfo[toToken];
         // TODO: PAIR TO PAIR IMPLEMENTAITON
@@ -233,7 +228,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         IERC20 from,
         IERC20 to,
         uint256 previousAmount
-    ) internal returns (RouteStep memory lastStep) {
+    ) private returns (RouteStep memory lastStep) {
         RouteStep[] memory route = routes[from][to];
         if (route.length == 0) {
             generateAutomaticRoute(from, to);
@@ -263,7 +258,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         RouteStep memory step,
         address recipient,
         uint256 amountIn
-    ) internal {
+    ) private {
         if (address(step.from) == address(0)) {
             IZap(msg.sender).pullAmountTo(recipient, amountIn);
         } else if (address(step.from) == address(1)) {
@@ -304,7 +299,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
     function generateAutomaticRoute(
         IERC20 from,
         IERC20 to
-    ) internal {
+    ) private {
         IERC20 main = mainToken;
         require(from != main && to != main, "!no route found");
         address[] memory route = new address[](5);
@@ -362,7 +357,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         IERC20 from,
         IERC20 to,
         address[] memory inputRoute
-    ) internal {
+    ) private {
         bool alreadyExists = routes[from][to].length > 0;
 
         generateRoute(from, to, inputRoute);
@@ -383,7 +378,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         IERC20 token0,
         IERC20 token1,
         address[] memory route
-    ) internal {
+    ) private {
         require(route.length >= 3, "!route too short");
         require(route.length % 2 == 1, "!route has even length");
         require(route[0] == address(token0), "!token0 not route beginning");
@@ -437,7 +432,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         }
     }
 
-    function generateInvertedRoute(IERC20 from, IERC20 to) internal {
+    function generateInvertedRoute(IERC20 from, IERC20 to) private {
         delete routes[to][from];
         uint256 length = routes[from][to].length;
         uint256 index;
@@ -460,7 +455,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
     //** TOKEN INFO GENERATION **/
 
     function generateEdgeType(IERC20 from, IERC20 to)
-        internal
+        private
         returns (TokenEdgeType)
     {
         bool fromPair = getPair(from);
@@ -479,7 +474,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         return edgeType;
     }
 
-    function getPair(IERC20 token) internal returns (bool) {
+    function getPair(IERC20 token) private returns (bool) {
         IUniswapV2Pair pair = IUniswapV2Pair(address(token));
         try pair.getReserves() {
             // get token0
@@ -503,7 +498,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         uint256 reserveOut,
         uint256 feeNom,
         uint256 feeDenom
-    ) internal pure returns (uint256 amountOut) {
+    ) private pure returns (uint256 amountOut) {
         uint256 amountInWithFee = amountIn * feeNom;
         uint256 numerator = amountInWithFee * reserveOut;
         uint256 denominator = reserveIn * feeDenom + amountInWithFee;
@@ -513,7 +508,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
     }
 
     function getFromZapperStep(IERC20 token)
-        internal
+        private
         pure
         returns (RouteStep memory)
     {
@@ -523,7 +518,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
     }
 
     function getFromThisContractStep(IERC20 token)
-        internal
+        private
         pure
         returns (RouteStep memory)
     {
