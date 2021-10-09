@@ -435,4 +435,33 @@ describe("Zap testing", function () {
 
     expect(receipt.gasUsed).to.eq(399026);
   });
+  it("It should allow zapping from token0 to token1/token2 pair with minimum", async function () {
+    expect(await Zap.from()).to.equal(ONE_ADDR);
+    const expected = BigNumber.from("619942319326980548");
+    const bal0Before = await Token0.balanceOf(owner.address);
+    const bal1Before = await Token1Token2Pair.balanceOf(owner.address);
+    Token0.approve(Zap.address, ONE.mul(BigNumber.from(2)));
+    const tx = await Zap.connect(owner).swapERC20(Token0.address, Token1Token2Pair.address, owner.address, ONE, expected);
+    const receipt = await tx.wait();
+
+    const bal0After = await Token0.balanceOf(owner.address);
+    const bal1After = await Token1Token2Pair.balanceOf(owner.address);
+    
+    expect(bal0Before.sub(bal0After)).to.be.equal(ONE);
+    expect(bal1After.sub(bal1Before)).to.be.equal(expected);
+
+    expect(await Zap.from()).to.equal(ONE_ADDR);
+
+    expect(receipt.gasUsed).to.eq(401881);
+  });
+  
+  it("It should not allow zapping from token0 to token1/token2 pair with too high minimum", async function () {
+    expect(await Zap.from()).to.equal(ONE_ADDR);
+    const expected = BigNumber.from("619942319326980548");
+    const bal0Before = await Token0.balanceOf(owner.address);
+    const bal1Before = await Token1Token2Pair.balanceOf(owner.address);
+    Token0.approve(Zap.address, ONE.mul(BigNumber.from(2)));
+     await expect(Zap.connect(owner).swapERC20(Token0.address, Token1Token2Pair.address, owner.address, ONE, expected))
+      .to.be.revertedWith("!minimum not received");
+  });
 });
