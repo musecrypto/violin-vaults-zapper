@@ -27,32 +27,32 @@ contract Zap is Ownable, IZap {
     event ImplementationChanged(IZapHandler indexed oldImplementation, IZapHandler indexed newImplementation);
     
     /**
-    * @notice Swap `amount` of `fromToken` to `toToken` and send them to the `to` address.
+    * @notice Swap `amount` of `fromToken` to `toToken` and send them to the `recipient`.
     * @notice The `fromToken` and `toToken` arguments can be AMM pairs.
-    * @notice Reverts if the `to` address received less tokens than `minReceived`.
+    * @notice Reverts if the `recipient` received less tokens than `minReceived`.
     * @notice Requires approval.
-    * @param fromToken The token to take from `msg.sender` and exchange for `toToken`
-    * @param toToken The token that will be bought and sent to the `to` address.
-    * @param to The destination address to receive the `toToken`
-    * @param amount The amount that the zapper should take from the `msg.sender` and swap
-    * @param minReceived The minimum amount of `toToken` the `to` address should receive. Otherwise the transaction reverts.
+    * @param fromToken The token to take from `msg.sender` and exchange for `toToken`.
+    * @param toToken The token that will be bought and sent to the `recipient`.
+    * @param recipient The destination address to receive the `toToken`.
+    * @param amount The amount that the zapper should take from the `msg.sender` and swap.
+    * @param minReceived The minimum amount of `toToken` the `recipient` should receive. Otherwise the transaction reverts.
     */
-    function swapERC20(IERC20 fromToken, IERC20 toToken, address to, uint256 amount, uint256 minReceived) external override returns (uint256 received) {
+    function swapERC20(IERC20 fromToken, IERC20 toToken, address recipient, uint256 amount, uint256 minReceived) external override returns (uint256 received) {
         // Store transaction variables to be used by the implementation in the pullTo hooks.
         from = msg.sender;
         pendingToken = fromToken;
         remaining = amount + 1;
 
-        uint256 beforeBal = toToken.balanceOf(to);
+        uint256 beforeBal = toToken.balanceOf(recipient);
         
         // Call the implementation to execute the swap.
-        implementation.convertERC20(fromToken, toToken, to, amount);
+        implementation.convertERC20(fromToken, toToken, recipient, amount);
 
         // Unset the temporary variables. pendingToken and remaining do not need to be unset.
         from = address(1);
 
         // Validate that sufficient tokens were received within the `to` address.
-        uint256 receivedTokens = toToken.balanceOf(to) - beforeBal; 
+        uint256 receivedTokens = toToken.balanceOf(recipient) - beforeBal; 
         require(receivedTokens >= minReceived, "!minimum not received");
 
         return receivedTokens;

@@ -14,45 +14,78 @@ import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 
 import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
 
+/**
+ * @notice The ZapHandlerV1 is the first implementation of the Violin Zap protocol.
+ * @notice It allows the owner to define routes that span over multiple uniswap factories.
+ * @notice Furthermore, individual hops in the route can set the zero factory to indicate that this hop should be subroutes by an existing route in the handler.
+ * @notice All though routes need to be added manually, swaps from token a to token b will create the route [a, main, b] if the main token is set.
+ * @notice The ZapHandlerV1 supports token->token, pair->token and token->pair swaps.
+ * @notice For pair->token swaps, the pair will first be burned and then two swaps to token are made.
+ * @notice For token->pair swaps, two swaps to each subtoken are made and then the pair is minted.
+ */
 contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeERC20 for IERC20;
-
-    struct Factory {
-        address factory;
-        uint32 amountsOutNominator;
-        uint32 amountsOutDenominator;
+    
+    /// @dev A list of ways the swap can occur, each way has distinct logic in the algorithm.
+    enum SwapType {
+        UNDEFINED,
+        TOKEN_TO_TOKEN,
+        TOKEN_TO_PAIR,
+        PAIR_TO_TOKEN,
+        PAIR_TO_PAIR
     }
 
-    struct RouteStep {
-        IERC20 from;
-        IERC20 to;
-        IUniswapV2Pair pair;
-        uint32 amountsOutNominator;
-        uint32 amountsOutDenominator;
-    }
+    /// @dev represents the swap type of the route from token0 to token1, for example TOKEN_TO_PAIR.
+    mapping(IERC20 => mapping(IERC20 => SwapType)) public tokenSwapType;
+
+    /// @dev Represents the token composition of an LP pair. Used for minting and burning LPs.
     struct PairInfo {
         IERC20 token0;
         IERC20 token1;
     }
-    enum TokenEdgeType {
-        UNDEFINED,
-        TOKEN_TO_TOKEN,
-        PAIR_TO_TOKEN,
-        TOKEN_TO_PAIR,
-        PAIR_TO_PAIR
-    }
 
-    IERC20 public mainToken;
-
-    mapping(IERC20 => mapping(IERC20 => TokenEdgeType)) public tokenEdgeTypes;
-
+    /// @dev The token0 and token1 of the pair if the pair has been registered.
     mapping(IERC20 => PairInfo) public pairInfo;
 
+    /// @dev Represents a UniswapV2Factory compatible factory.
+    struct Factory {
+        /// @dev The address of the factory.
+        address factory;
+        /// @dev The fee nominator of the AMM, usually set to 997 for a 0.3% fee.
+        uint32 amountsOutNominator;
+        /// @dev The fee denominator of the AMM, usually set to 1000.
+        uint32 amountsOutDenominator;
+    }
+    /// @dev An enumerable list of all registered factories.
     EnumerableSet.AddressSet factorySet;
+    /// @dev Factory address to the specification of the factory including it's fee structure.
     mapping(address => Factory) public factories;
 
+
+    /// @dev Represents a single step in a swap route.
+    /// @dev Within the algorithm, two special steps are employed: The getFromZapperStep and getFromThisContractStep.
+    struct RouteStep {
+        /// @dev The token to swap from.
+        /// @dev address(0) to indicate that the to token can be pulled from the Zap (msg.sender) contract.
+        /// @dev address(1) to indicate that the `to` token can be pulled from this contract.
+        IERC20 from;
+        /// @dev The token to swap to.
+        IERC20 to;
+        /// @dev The UniswapV2 compatible pair address to swap over. 
+        IUniswapV2Pair pair;
+        /// @dev The fee nominator of the AMM, usually set to 997 for a 0.3% fee.
+        uint32 amountsOutNominator;
+        /// @dev The fee denominator of the AMM, usually set to 1000.
+        uint32 amountsOutDenominator;
+    }
+
+    /// @dev For any registered from and to pair, provide a route used by the algorithm to execute the swap.
     mapping(IERC20 => mapping(IERC20 => RouteStep[])) public routes;
+
+    /// @dev The main token most AMMs and pairs use, eg. WETH.
+    IERC20 public mainToken;
+
 
     event FactorySet(
         address indexed factory,
@@ -66,60 +99,87 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         IERC20 indexed to,
         bool indexed alreadyExists
     );
-
     event MainTokenSet(IERC20 indexed mainToken);
 
     //** ROUTING **/
+
+    /**
+    * @notice Swap `amount` of `fromToken` to `toToken` and send them to the recipient.
+    * @notice The `fromToken` and `toToken` arguments can be AMM pairs.
+    * @notice Requires `msg.sender` to be a Zap instance.
+    * @dev Switches over the different routing types to let the specific handler functions take care of them.
+    * @param fromToken The token to take from `msg.sender` and exchange for `toToken`.
+    * @param toToken The token that will be bought and sent to the recipient.
+    * @param recipient The destination address to receive the `toToken`.
+    * @param amount The amount that the zapper should take from the `msg.sender` and swap.
+    */
     function convertERC20(
         IERC20 fromToken,
         IERC20 toToken,
         address recipient,
         uint256 amount
     ) external override {
-        TokenEdgeType edgeType = tokenEdgeTypes[fromToken][toToken];
-        if (edgeType == TokenEdgeType.UNDEFINED)
-            edgeType = generateEdgeType(fromToken, toToken);
+        // Fetch the type of swap or discover it if it's not cached yet.
+        SwapType edgeType = tokenSwapType[fromToken][toToken];
+        if (edgeType == SwapType.UNDEFINED)
+            edgeType = generateSwapType(fromToken, toToken);
 
-        if (edgeType == TokenEdgeType.TOKEN_TO_TOKEN) {
+        // Execute the swap according to its type.
+        if (edgeType == SwapType.TOKEN_TO_TOKEN) {
             handleTokenToToken(fromToken, toToken, recipient, amount);
-        } else if (edgeType == TokenEdgeType.PAIR_TO_TOKEN) {
-            handlePairToToken(fromToken, toToken, recipient, amount);
-        } else if (edgeType == TokenEdgeType.TOKEN_TO_PAIR) {
+        } else if (edgeType == SwapType.TOKEN_TO_PAIR) {
             handleTokenToPair(fromToken, toToken, recipient, amount);
-        } else if (edgeType == TokenEdgeType.PAIR_TO_PAIR) {
+        } else if (edgeType == SwapType.PAIR_TO_TOKEN) {
+            handlePairToToken(fromToken, toToken, recipient, amount);
+        } else if (edgeType == SwapType.PAIR_TO_PAIR) {
             handlePairToPair(fromToken, toToken, recipient, amount);
         }
     }
 
+    /// @notice Swap a token to another token, both tokens are not LPs. This is the most simple swap type.
+    /// @param fromToken The token to take from `msg.sender` and exchange for `toToken`.
+    /// @param toToken The token that will be bought and sent to the recipient.
+    /// @param recipient The destination address to receive the `toToken`.
+    /// @param amount The amount that the zapper should take from the `msg.sender` and swap.
     function handleTokenToToken(
         IERC20 fromToken,
         IERC20 toToken,
         address recipient,
         uint256 amount
     ) private {
+        // Swap along the route from the `fromToken` to the `toToken`
+        // The initial step is set to the dummy to take the tokens out of the Zap contract.
         RouteStep memory lastStep = handleRoute(
             getFromZapperStep(fromToken),
             fromToken,
             toToken,
             amount
         );
-
+        // Take the tokens out of the last step and forward them to the recipient. The last amount parameter is only used for the dummies so is set to zero.
         handleSwap(lastStep, recipient, 0);
     }
 
+    /// @notice Swap an LP pair to a token. This is done by burning the LP pair into token0 and token1, temporarily stored inside this contract.
+    /// @notice Then, token0 and token1 are both swapped to the `toToken` as if they were TOKEN_TO_TOKEN.
+    /// @param fromToken The token to take from `msg.sender` and exchange for `toToken`.
+    /// @param toToken The token that will be bought and sent to the `recipient` address.
+    /// @param recipient The destination address to receive the `toToken`.
+    /// @param amount The amount that the zapper should take from the `msg.sender` and swap.
     function handlePairToToken(
         IERC20 fromToken,
         IERC20 toToken,
         address recipient,
         uint256 amount
     ) private {
+        // Get the token0 and token1 pair info of the from token, this has already been generated.
         PairInfo memory fromInfo = pairInfo[fromToken];
 
+        // Pull all LP tokens into the LP contract and burn them to receive the underlying tokens inside of this address.
         IZap(msg.sender).pullAmountTo(address(fromToken), amount);
         IUniswapV2Pair(address(fromToken)).burn(address(this));
-
-        uint256 token0bal = fromInfo.token0.balanceOf(address(this));
         
+        /// Executes a swap from `token0` to the `toToken` and sends them to the recipient`.
+        uint256 token0bal = fromInfo.token0.balanceOf(address(this));
         if (fromInfo.token0 == toToken) {
             toToken.safeTransfer(recipient, token0bal);
         } else {
@@ -131,6 +191,8 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
             );
             handleSwap(lastStepToken0, recipient, 0);
         }
+
+        /// Executes a swap from `token1` to the `toToken` and sends them to the recipient`.
         uint256 token1bal = fromInfo.token1.balanceOf(address(this));
         if (fromInfo.token1 == toToken) {
             toToken.safeTransfer(recipient, token1bal);
@@ -145,59 +207,68 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         }
     }
 
+    /// @notice Swap a token to an LP pair. This is done by swapping half of the token `amount` to token0 and the other half to token1.
+    /// @notice Finally, token0 and token1, stored inside the contract, are forwarded to the LP pair and the LP pair tokens are minted and sent to the recipient.
+    /// @param fromToken The token to take from `msg.sender` and exchange for `toToken`.
+    /// @param toToken The token that will be bought and sent to the `recipient` address.
+    /// @param recipient The destination address to receive the `toToken`.
+    /// @param amount The amount that the zapper should take from the `msg.sender` and swap.
     function handleTokenToPair(
         IERC20 fromToken,
         IERC20 toToken,
         address recipient,
         uint256 amount
     ) private {
+        // Get the token0 and token1 pair info of the from token, this has already been generated.
         PairInfo memory toInfo = pairInfo[toToken];
+
         uint256 amount0 = amount / 2;
         uint256 amount1 = amount - amount0;
 
-        RouteStep memory lastStepToken0;
+        /// Swap amount0 (half of amount) to token0 and store it in this contract.
         if (fromToken == toInfo.token0) {
-            lastStepToken0 = getFromZapperStep(fromToken);
+            IZap(msg.sender).pullAmountTo(address(this), amount0);
         } else {
-            lastStepToken0 = handleRoute(
+            RouteStep memory lastStepToken0 = handleRoute(
                 getFromZapperStep(fromToken),
                 fromToken,
                 toInfo.token0,
                 amount0
             );
-            handleSwap(lastStepToken0, address(this), 0);
-            lastStepToken0 = getFromThisContractStep(toInfo.token0);
+
+            handleSwap(lastStepToken0, address(this), amount0);
         }
 
-        RouteStep memory lastStepToken1;
+        /// Swap amount1 (half of amount) to token1 and store it in this contract.
         if (fromToken == toInfo.token1) {
-            lastStepToken1 = getFromZapperStep(fromToken);
+            IZap(msg.sender).pullAmountTo(address(this), amount1);
         } else {
-            lastStepToken1 = handleRoute(
+            RouteStep memory lastStepToken1 = handleRoute(
                 getFromZapperStep(fromToken),
                 fromToken,
                 toInfo.token1,
                 amount1
             );
-            handleSwap(lastStepToken1, address(this), 0);
-            lastStepToken1 = getFromThisContractStep(toInfo.token1);
+            handleSwap(lastStepToken1, address(this), amount1);
         }
-
-        handleSwap(lastStepToken0, address(this), amount0);
-        handleSwap(lastStepToken1, address(this), amount1);
+        // Calculate the correct amounts to add to the AMM pair, similar to the uniswap router, there's some inefficiency for transfer-tax tokens.
         uint256 balance0 = toInfo.token0.balanceOf(address(this));
         uint256 balance1 = toInfo.token1.balanceOf(address(this));
-        (uint256 res0, uint256 res1, ) = IUniswapV2Pair(address(toToken)).getReserves();
+        (uint256 res0, uint256 res1, ) = IUniswapV2Pair(address(toToken))
+            .getReserves();
         uint256 amount0ToPair = balance0;
-        uint256 amount1ToPair = balance0 * res1 / res0;
+        uint256 amount1ToPair = (balance0 * res1) / res0;
 
-        if(amount1ToPair > balance1) {
-            amount0ToPair = balance1 * res0 / res1;
+        if (amount1ToPair > balance1) {
+            amount0ToPair = (balance1 * res0) / res1;
             amount1ToPair = balance1;
         }
+        
+        // Transfer the ideal amount of tokens to the LP pair.
         toInfo.token0.safeTransfer(address(toToken), amount0ToPair);
         toInfo.token1.safeTransfer(address(toToken), amount1ToPair);
         
+        // The dust is transfered to the owner as this is otherwise lost and `to` will not handle this for our contracts.
         if (amount0ToPair < balance0) {
             toInfo.token0.safeTransfer(owner(), balance0 - amount0ToPair);
         }
@@ -205,18 +276,18 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
             toInfo.token1.safeTransfer(owner(), balance1 - amount1ToPair);
         }
 
+        // Finally the LP pair is minted.
         IUniswapV2Pair(address(toToken)).mint(recipient);
     }
 
+    /// @dev This iteration of the zap handler does not support Pair->Pair swaps yet. If needed, this could be done by two pair->token swaps.
     function handlePairToPair(
-        IERC20 fromToken,
-        IERC20 toToken,
-        address recipient,
-        uint256 amount
-    ) private {
-        PairInfo memory fromToken = pairInfo[fromToken];
-        PairInfo memory toInfo = pairInfo[toToken];
-        // TODO: PAIR TO PAIR IMPLEMENTAITON
+        IERC20 /**fromToken*/,
+        IERC20 /**toToken*/,
+        address /**recipient*/,
+        uint256 /**amount*/
+    ) private pure {
+        // TODO: PAIR TO PAIR IMPLEMENTATION
         revert("unimplemented feature: pair to pair routing");
     }
 
@@ -234,7 +305,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
             generateAutomaticRoute(from, to);
             route = routes[from][to];
         }
-    
+
         for (uint256 i = 0; i < route.length; i++) {
             RouteStep memory step = route[i];
             // Zero pair indicates nested routing.
@@ -296,10 +367,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
 
     //** CONFIGURATION **/
 
-    function generateAutomaticRoute(
-        IERC20 from,
-        IERC20 to
-    ) private {
+    function generateAutomaticRoute(IERC20 from, IERC20 to) private {
         IERC20 main = mainToken;
         require(from != main && to != main, "!no route found");
         address[] memory route = new address[](5);
@@ -395,7 +463,10 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
             address factory = route[i];
             IERC20 to = IERC20(route[i + 1]);
             if (factory == address(0)) {
-                require(routes[from][to].length > 0, "!swap subroute not created yet");
+                require(
+                    routes[from][to].length > 0,
+                    "!swap subroute not created yet"
+                );
                 routes[token0][token1].push(
                     RouteStep({
                         from: from,
@@ -454,24 +525,24 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
 
     //** TOKEN INFO GENERATION **/
 
-    function generateEdgeType(IERC20 from, IERC20 to)
+    function generateSwapType(IERC20 from, IERC20 to)
         private
-        returns (TokenEdgeType)
+        returns (SwapType)
     {
         bool fromPair = getPair(from);
         bool toPair = getPair(to);
-        TokenEdgeType edgeType;
+        SwapType swapType;
         if (fromPair) {
-            edgeType = toPair
-                ? TokenEdgeType.PAIR_TO_PAIR
-                : TokenEdgeType.PAIR_TO_TOKEN;
+            swapType = toPair
+                ? SwapType.PAIR_TO_PAIR
+                : SwapType.PAIR_TO_TOKEN;
         } else {
-            edgeType = toPair
-                ? TokenEdgeType.TOKEN_TO_PAIR
-                : TokenEdgeType.TOKEN_TO_TOKEN;
+            swapType = toPair
+                ? SwapType.TOKEN_TO_PAIR
+                : SwapType.TOKEN_TO_TOKEN;
         }
-        tokenEdgeTypes[from][to] = edgeType;
-        return edgeType;
+        tokenSwapType[from][to] = swapType;
+        return swapType;
     }
 
     function getPair(IERC20 token) private returns (bool) {
