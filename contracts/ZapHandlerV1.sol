@@ -239,7 +239,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
             generateAutomaticRoute(from, to);
             route = routes[from][to];
         }
-
+    
         for (uint256 i = 0; i < route.length; i++) {
             RouteStep memory step = route[i];
             // Zero pair indicates nested routing.
@@ -400,7 +400,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
             address factory = route[i];
             IERC20 to = IERC20(route[i + 1]);
             if (factory == address(0)) {
-                require(routes[from][to].length > 0, "subroute does not exist");
+                require(routes[from][to].length > 0, "!swap subroute not created yet");
                 routes[token0][token1].push(
                     RouteStep({
                         from: from,

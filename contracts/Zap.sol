@@ -21,7 +21,7 @@ contract Zap is Ownable, IZap {
     event ImplementationChanged(IZapHandler indexed oldImplementation, IZapHandler indexed newImplementation);
 
     // to parameter? yes.
-    function zapERC20(IERC20 fromToken, IERC20 toToken, address to, uint256 amount, uint256 minReceived) external override returns (uint256 received) {
+    function swapERC20(IERC20 fromToken, IERC20 toToken, address to, uint256 amount, uint256 minReceived) external override returns (uint256 received) {
         from = msg.sender;
         pendingToken = fromToken;
         remaining = amount + 1;
@@ -35,6 +35,15 @@ contract Zap is Ownable, IZap {
         require(receivedTokens >= minReceived, "!minimum not received");
         // Unfortunately no event to save gas.
         return receivedTokens;
+    }
+    
+    function swapERC20Fast(IERC20 fromToken, IERC20 toToken, uint256 amount) external override {
+        from = msg.sender;
+        pendingToken = fromToken;
+        remaining = amount + 1;
+
+        implementation.convertERC20(fromToken, toToken, msg.sender, amount);
+        from = address(1);
     }
     
     function pullTo(address to) external override {
