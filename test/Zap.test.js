@@ -220,7 +220,7 @@ describe("Zap testing", function () {
 
     expect(await Zap.from()).to.equal(ONE_ADDR);
     
-    expect(receipt.gasUsed).to.eq(118949);
+    expect(receipt.gasUsed).to.eq(118934);
   });
 
   it("It should allow zapping from token0 to token1 using cheaper method", async function () {
@@ -244,7 +244,7 @@ describe("Zap testing", function () {
 
     expect(await Zap.from()).to.equal(ONE_ADDR);
     
-    expect(receipt.gasUsed).to.eq(116072);
+    expect(receipt.gasUsed).to.eq(116057);
   });
 
 
@@ -318,7 +318,7 @@ describe("Zap testing", function () {
 
     expect(await Zap.from()).to.equal(ONE_ADDR);
 
-    expect(receipt.gasUsed).to.eq(215014);
+    expect(receipt.gasUsed).to.eq(215004);
   });
 
   it("It should allow setting a main token", async function () {
@@ -373,7 +373,7 @@ describe("Zap testing", function () {
 
     expect(await Zap.from()).to.equal(ONE_ADDR);
 
-    expect(receipt.gasUsed).to.eq(537251);
+    expect(receipt.gasUsed).to.eq(537236);
   });
 
 
@@ -394,7 +394,7 @@ describe("Zap testing", function () {
 
     expect(await Zap.from()).to.equal(ONE_ADDR);
 
-    expect(receipt.gasUsed).to.eq(204431);
+    expect(receipt.gasUsed).to.eq(204416);
   });
   it("It should allow zapping from token0 to token1/token2 pair", async function () {
     expect(await Zap.from()).to.equal(ONE_ADDR);
@@ -413,7 +413,7 @@ describe("Zap testing", function () {
 
     expect(await Zap.from()).to.equal(ONE_ADDR);
 
-    expect(receipt.gasUsed).to.eq(485307);
+    expect(receipt.gasUsed).to.eq(485280);
   });
 
   it("It should allow zapping from token0 to token1/token2 pair again", async function () {
@@ -433,8 +433,9 @@ describe("Zap testing", function () {
 
     expect(await Zap.from()).to.equal(ONE_ADDR);
 
-    expect(receipt.gasUsed).to.eq(386594);
+    expect(receipt.gasUsed).to.eq(386567);
   });
+
   it("It should allow zapping from token0 to token1/token2 pair with minimum", async function () {
     expect(await Zap.from()).to.equal(ONE_ADDR);
     const expected = BigNumber.from("619942319326980548");
@@ -452,7 +453,7 @@ describe("Zap testing", function () {
 
     expect(await Zap.from()).to.equal(ONE_ADDR);
 
-    expect(receipt.gasUsed).to.eq(389449);
+    expect(receipt.gasUsed).to.eq(389422);
   });
   
   it("It should not allow zapping from token0 to token1/token2 pair with too high minimum", async function () {

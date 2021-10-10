@@ -150,7 +150,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         // Swap along the route from the `fromToken` to the `toToken`
         // The initial step is set to the dummy to take the tokens out of the Zap contract.
         RouteStep memory lastStep = handleRoute(
-            getFromZapperStep(fromToken),
+            getFromZapperStep(),
             fromToken,
             toToken,
             amount
@@ -230,7 +230,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
             IZap(msg.sender).pullAmountTo(address(this), amount0);
         } else {
             RouteStep memory lastStepToken0 = handleRoute(
-                getFromZapperStep(fromToken),
+                getFromZapperStep(),
                 fromToken,
                 toInfo.token0,
                 amount0
@@ -244,7 +244,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
             IZap(msg.sender).pullAmountTo(address(this), amount1);
         } else {
             RouteStep memory lastStepToken1 = handleRoute(
-                getFromZapperStep(fromToken),
+                getFromZapperStep(),
                 fromToken,
                 toInfo.token1,
                 amount1
@@ -293,12 +293,21 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
 
     //** ROUTE HANDLERS **/
 
-    // returns lastPair to take out
+    /**
+     * @dev Swaps tokens along the saved route between `from` and `to`. The last swap step is not yet handled (swapped) to allow the caller to chose a destination for it.
+     * @dev This pull mechanism (using lastStep) is done to allow the wildcard (zero factory) notation to function efficiently. Eg. routes like [token0, 0, wmatic, 0, token1].
+     * @dev handleRoute goes through all steps along the route and recurses through subroutes to do the same. It pulls funds from the previous step pairs into the current step pairs.
+     * @dev If a route does not exist yet, it attempts to tunnel a route over the main token. This will revert if there is no such route possible.
+     * @param from The token to swap from.
+     * @param to The token to swap to.
+     * @param firstAmount The amount of tokens to pull from the Zap, will only be used if the previousStep is set to the from-zap dummy.
+     * @return lastStep The last swap step that still needs to be handled. This needs to be handled to actually send the to tokens to a location.
+     */
     function handleRoute(
         RouteStep memory previousStep,
         IERC20 from,
         IERC20 to,
-        uint256 previousAmount
+        uint256 firstAmount
     ) private returns (RouteStep memory lastStep) {
         RouteStep[] memory route = routes[from][to];
         if (route.length == 0) {
@@ -314,27 +323,40 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
                     previousStep,
                     step.from,
                     step.to,
-                    previousAmount
+                    firstAmount
                 );
             } else {
-                handleSwap(previousStep, address(step.pair), previousAmount);
+                handleSwap(previousStep, address(step.pair), firstAmount);
                 previousStep = step;
             }
         }
         return (previousStep);
     }
 
-    // slightly more gas optimal then the shorter version
+    /**
+     * @dev handleSwap executes a swap on the provided `step` pair. It requires that there are already `from` tokens deposited into this pair.
+     * @dev As many `to` tokens will then be sent to the recipient as is allowed by the pair curve.
+     * @dev It thus executes a swap on a pair given the pre-existing deposit, and forwards the result to recipient.
+     * @dev Dummy steps can be provided to pull tokens from either the Zap contract or from this contract.
+     * @param step The step to swap in and transfer from.
+     * @param recipient The recipient to sent the swap result to.
+     * @param amountIn The amount of tokens to pull from the Zap. Should only be set if ussing a from zap dummy (otherwise it's ignored).
+     */
     function handleSwap(
         RouteStep memory step,
         address recipient,
         uint256 amountIn
     ) private {
+        // We first handle the dummy step cases.
+        // from=address(0): Transfer `amountIn` from the zap contract to the recipient. This is used as the first step in the route.
+        // from=addres(1): Transfer all tokens in this contract to the recipient. This is used for the LP related functionality.
         if (address(step.from) == address(0)) {
             IZap(msg.sender).pullAmountTo(recipient, amountIn);
         } else if (address(step.from) == address(1)) {
             step.to.safeTransfer(recipient, step.to.balanceOf(address(this)));
         } else {
+            // If the step is not a dummy, this means an actual AMM swap has to occur.
+            // For gas optimization, we write out the two cases fully (where from is token0 and where from is token1).
             if (address(step.from) < address(step.to)) {
                 (uint256 reserveIn, uint256 reserveOut, ) = step
                     .pair
@@ -366,7 +388,8 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
     }
 
     //** CONFIGURATION **/
-
+    /// @dev Attempts to tunnel a route over the main token and save it.
+    /// @dev This route is of the form [from, 0, main, 0, to]
     function generateAutomaticRoute(IERC20 from, IERC20 to) private {
         IERC20 main = mainToken;
         require(from != main && to != main, "!no route found");
@@ -379,6 +402,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         _setRoute(from, to, route);
     }
 
+    /// @dev Adds a factory to the list of registered factories that can be used within RouteSpec.
     function setFactory(
         address factory,
         uint32 amountsOutNominator,
@@ -404,7 +428,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
             amountsOutDenominator
         );
     }
-
+    /// @notice Removes a factory from the list of registered factories.
     function removeFactory(address factory) external onlyOwner {
         require(factorySet.contains(factory), "!exists");
         factorySet.remove(factory);
@@ -413,6 +437,12 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         emit FactoryRemoved(factory);
     }
 
+    /**
+     * @notice Generates and saves a route (and inverse of this route) based on the RouteSpec encoded `inputRoute`.
+     * @param from the token to swap from.
+     * @param to the token to swap to.
+     * @param inputRoute A route in RouteSpec notation indicating the swap steps and the uniswap like factories these swaps should be made.
+     */
     function setRoute(
         IERC20 from,
         IERC20 to,
@@ -421,6 +451,11 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         _setRoute(from, to, inputRoute);
     }
 
+    /**
+     * @dev Generates a route based on the RouteSpec encoded `inputRoute` and saves it under routes.
+     * @dev A route is denoted as a list of RouteSteps.
+     * @dev Also generates and saves the inverse of the route.
+     */
     function _setRoute(
         IERC20 from,
         IERC20 to,
@@ -435,6 +470,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         emit RouteAdded(to, from, alreadyExists);
     }
 
+    /// @dev Updates the main token, this is used for automatic route tunneling.
     function setMainToken(IERC20 _mainToken) external onlyOwner {
         mainToken = _mainToken;
         emit MainTokenSet(_mainToken);
@@ -442,6 +478,9 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
 
     //** ROUTE GENERATION **/
 
+    /**
+     * @dev Generates a new route from token0 and token1 using RouteSpec notation.
+     */
     function generateRoute(
         IERC20 token0,
         IERC20 token1,
@@ -503,6 +542,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         }
     }
 
+    /// @dev Inverts the stored [`from`, `to`] route and stores this as a new route.
     function generateInvertedRoute(IERC20 from, IERC20 to) private {
         delete routes[to][from];
         uint256 length = routes[from][to].length;
@@ -525,6 +565,8 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
 
     //** TOKEN INFO GENERATION **/
 
+    /// @dev Figures out the SwapType (eg. TOKEN_TO_TOKEN) for the token pair and stores it.
+    /// @dev Calls common UniswapV2Pair functions to guess that the tokens are a pair or not.
     function generateSwapType(IERC20 from, IERC20 to)
         private
         returns (SwapType)
@@ -545,6 +587,7 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         return swapType;
     }
 
+    /// @dev Returns whether `token` is a pair or not. If it is a pair, stores the pairInfo.
     function getPair(IERC20 token) private returns (bool) {
         IUniswapV2Pair pair = IUniswapV2Pair(address(token));
         try pair.getReserves() {
@@ -562,7 +605,8 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
     }
 
     //** UTILITIES **/
-
+    
+    /// @dev Uses the Uniswap formula to calculate how many tokens can be taken out given `amountIn`.
     function getAmountOut(
         uint256 amountIn,
         uint256 reserveIn,
@@ -578,16 +622,17 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         }
     }
 
-    function getFromZapperStep(IERC20 token)
+    /// @dev Returns a dummy step that indactes the token should be pulled from the zapper.
+    function getFromZapperStep()
         private
         pure
         returns (RouteStep memory)
     {
         RouteStep memory fromZapper;
-        fromZapper.to = token;
         return fromZapper;
     }
 
+    /// @dev Returns a dummy step that indactes the `token` should be pulled from this contract.
     function getFromThisContractStep(IERC20 token)
         private
         pure
@@ -599,14 +644,17 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
         return fromZapper;
     }
 
+    /// @notice Gets a registered factory at a specific index, use factoryLength() for the upper bound.
     function getFactory(uint256 index) external view returns (address) {
         return factorySet.at(index);
     }
 
+    /// @notice Returns the total number of registered factories.
     function factoryLength() external view returns (uint256) {
         return factorySet.length();
     }
 
+    /// @notice Returns the number of steps on the route from token0 to token1.
     function routeLength(IERC20 token0, IERC20 token1)
         external
         view
