@@ -23,8 +23,9 @@ The contracts have been deployed as-is on a variety of chains.
 
 ### Staging
 
-| Chain   | Address                                    |
-| ------- | ------------------------------------------ |
+| Chain   | Zap                                        | ZapHandler                                 |
+| ------- | ------------------------------------------ | ------------------------------------------ |
+| BSC     | 0xAfEf94984f3C3665e72F1a8d4634659621dA18A0 | 0x56E862Da14e4C998dC2c297D17501512A524D527 | 
 | Celo    |  |
 | Harmony |  |
 | Polygon |  |

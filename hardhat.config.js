@@ -5,7 +5,10 @@ require("hardhat-contract-sizer");
 require("solidity-coverage");
 require("dotenv").config();
 
-const { PRIVATE_KEY, ETHERSCAN_APIKEY, FORK_URI } = process.env;
+let { PRIVATE_KEY, ETHERSCAN_APIKEY, FORK_URI } = process.env;
+if (FORK_URI === undefined) {
+  FORK_URI = "";
+}
 /**
  * @type import('hardhat/config').HardhatUserConfig
  */
@@ -96,4 +99,8 @@ module.exports = {
     runOnCompile: true,
     disambiguatePaths: false,
   },
+  deterministicDeployment: (chainId) =>  ({
+     "factory": "0xdbfD940f57E63049039404c1b35b9e47e90F2B3e"
+    })
+  ,
 };

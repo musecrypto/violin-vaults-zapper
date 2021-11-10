@@ -26,6 +26,10 @@ contract Zap is Ownable, IZap {
 
     event ImplementationChanged(IZapHandler indexed oldImplementation, IZapHandler indexed newImplementation);
     
+    constructor(address _owner) {
+        _transferOwnership(_owner);
+    }
+
     /**
     * @notice Swap `amount` of `fromToken` to `toToken` and send them to the `recipient`.
     * @notice The `fromToken` and `toToken` arguments can be AMM pairs.

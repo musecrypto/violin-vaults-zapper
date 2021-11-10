@@ -101,6 +101,10 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
     );
     event MainTokenSet(IERC20 indexed mainToken);
 
+    constructor(address _owner) {
+        _transferOwnership(_owner);
+    }
+    
     //** ROUTING **/
 
     /**

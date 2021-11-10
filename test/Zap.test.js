@@ -1,6 +1,6 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
-const { BigNumber } = require("ethers");
+const BigNumber = ethers.BigNumber;
 
 const quickswap = "0x5757371414417b8C6CAad45bAeF941aBc7d3Ab32";
 const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
@@ -36,12 +36,12 @@ describe("Zap testing", function () {
     const uniFactoryFactory = await ethers.getContractFactory("MockFactory");
     UniFactory = await uniFactoryFactory.attach(quickswap);
 
-    const ZapFactory = await ethers.getContractFactory("Zap");
-    const ZapHandlerV1Factory = await ethers.getContractFactory("ZapHandlerV1", owner);
+    const ZapFactory = await ethers.getContractFactory("Zap", wallet1);
+    const ZapHandlerV1Factory = await ethers.getContractFactory("ZapHandlerV1", wallet1);
     const TestTokenFactory = await ethers.getContractFactory("TestToken", owner);
     const uniPairFactory = await ethers.getContractFactory("MockPair", owner);
-    Zap = await ZapFactory.deploy();
-    ZapHandlerV1 = await ZapHandlerV1Factory.deploy();
+    Zap = await ZapFactory.deploy(owner.address);
+    ZapHandlerV1 = await ZapHandlerV1Factory.deploy(owner.address);
 
     Token0 = await TestTokenFactory.deploy("TestToken0", "TST");
     Token1 = await TestTokenFactory.deploy("TestToken1", "TST");
@@ -322,7 +322,7 @@ describe("Zap testing", function () {
   });
 
   it("It should allow setting a main token", async function () {
-      await expect(ZapHandlerV1.setMainToken(Main.address))
+      await expect(ZapHandlerV1.connect(owner).setMainToken(Main.address))
         .to.emit(ZapHandlerV1, "MainTokenSet")
         .withArgs(Main.address);
       expect(await ZapHandlerV1.mainToken()).to.be.equal(Main.address);
