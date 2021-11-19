@@ -26,8 +26,10 @@ The contracts have been deployed as-is on a variety of chains.
 | Chain   | Zap                                        | ZapHandler                                 | ZapGovernor                                |
 | ------- | ------------------------------------------ | ------------------------------------------ | ------------------------------------------ |
 | BSC     | 0xAfEf94984f3C3665e72F1a8d4634659621dA18A0 | 0x56E862Da14e4C998dC2c297D17501512A524D527 | 0x757c56d4cd34c448c82a542b836050d3d2Bf3D79 |
-| Celo    |  |
-| Harmony |  |
+| Celo    | 0xAfEf94984f3C3665e72F1a8d4634659621dA18A0 | 0x56E862Da14e4C998dC2c297D17501512A524D527 | 0x757c56d4cd34c448c82a542b836050d3d2Bf3D79 |
+| Cronos  | 0xAfEf94984f3C3665e72F1a8d4634659621dA18A0 | 0x56E862Da14e4C998dC2c297D17501512A524D527 | 0x757c56d4cd34c448c82a542b836050d3d2Bf3D79 |
+| Fantom  | 0xAfEf94984f3C3665e72F1a8d4634659621dA18A0 | 0x56E862Da14e4C998dC2c297D17501512A524D527 | 0x757c56d4cd34c448c82a542b836050d3d2Bf3D79 | 
+| Harmony |  | 
 | Polygon |  |
 
 ## Documentation
