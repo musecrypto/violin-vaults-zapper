@@ -594,6 +594,9 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
     /// @dev Returns whether `token` is a pair or not. If it is a pair, stores the pairInfo.
     function getPair(IERC20 token) private returns (bool) {
         IUniswapV2Pair pair = IUniswapV2Pair(address(token));
+        // WETH has fallback function
+        if (token == mainToken)
+            return false;
         try pair.getReserves() {
             // get token0
             try pair.token0() returns (address token0) {
