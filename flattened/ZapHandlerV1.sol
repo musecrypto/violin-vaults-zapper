@@ -1,6 +1,9 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIXED
 
-pragma solidity ^0.8.6;
+// File @openzeppelin/contracts/security/ReentrancyGuard.sol@v4.3.2
+// License-Identifier: MIT
+
+pragma solidity ^0.8.0;
 
 /**
  * @dev Contract module that helps prevent reentrant calls to a function.
@@ -61,6 +64,10 @@ abstract contract ReentrancyGuard {
     }
 }
 
+// File @openzeppelin/contracts/token/ERC20/IERC20.sol@v4.3.2
+// License-Identifier: MIT
+
+pragma solidity ^0.8.0;
 
 /**
  * @dev Interface of the ERC20 standard as defined in the EIP.
@@ -140,6 +147,10 @@ interface IERC20 {
     event Approval(address indexed owner, address indexed spender, uint256 value);
 }
 
+// File @openzeppelin/contracts/utils/Address.sol@v4.3.2
+// License-Identifier: MIT
+
+pragma solidity ^0.8.0;
 
 /**
  * @dev Collection of functions related to the address type
@@ -354,6 +365,12 @@ library Address {
     }
 }
 
+// File @openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol@v4.3.2
+// License-Identifier: MIT
+
+pragma solidity ^0.8.0;
+
+
 /**
  * @title SafeERC20
  * @dev Wrappers around ERC20 operations that throw on failure (when the token
@@ -445,6 +462,11 @@ library SafeERC20 {
         }
     }
 }
+
+// File @openzeppelin/contracts/utils/structs/EnumerableSet.sol@v4.3.2
+// License-Identifier: MIT
+
+pragma solidity ^0.8.0;
 
 /**
  * @dev Library for managing
@@ -799,6 +821,11 @@ library EnumerableSet {
     }
 }
 
+// File @openzeppelin/contracts/utils/Context.sol@v4.3.2
+// License-Identifier: MIT
+
+pragma solidity ^0.8.0;
+
 /**
  * @dev Provides information about the current execution context, including the
  * sender of the transaction and its data. While these are generally available
@@ -818,6 +845,14 @@ abstract contract Context {
         return msg.data;
     }
 }
+
+// File contracts/dependencies/Ownable.sol
+// License-Identifier: MIT
+
+// Derived from https://github.com/OpenZeppelin/openzeppelin-contracts/blob/1b27c13096d6e4389d62e7b0766a1db53fbb3f1b/contracts/access/Ownable.sol
+// Adds pending owner
+
+pragma solidity ^0.8.0;
 
 /**
  * @dev Contract module which provides a basic access control mechanism, where
@@ -904,6 +939,11 @@ abstract contract Ownable is Context {
     }
 }
 
+// File contracts/interfaces/IZapHandler.sol
+// License-Identifier: MIT
+
+pragma solidity ^0.8.6;
+
 interface IZapHandler {
 
     /**
@@ -917,6 +957,12 @@ interface IZapHandler {
     */
     function convertERC20(IERC20 fromToken, IERC20 toToken, address recipient, uint256 amount) external;
 }
+
+// File contracts/interfaces/IZap.sol
+// License-Identifier: MIT
+
+pragma solidity ^0.8.6;
+
 
 /// @notice The IZap interface allows contracts to swap a token for another token without having to directly interact with verbose AMMs directly.
 /// @notice It furthermore allows to zap to and from an LP pair within a single transaction.
@@ -974,9 +1020,7 @@ interface IZap {
     function setImplementation(IZapHandler implementation) external;
 }
 
-
 // File @uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol@v1.0.1
-
 pragma solidity >=0.5.0;
 
 interface IUniswapV2Pair {
@@ -1030,9 +1074,7 @@ interface IUniswapV2Pair {
     function initialize(address, address) external;
 }
 
-
 // File @uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol@v1.0.1
-
 pragma solidity >=0.5.0;
 
 interface IUniswapV2Factory {
@@ -1050,6 +1092,15 @@ interface IUniswapV2Factory {
     function setFeeTo(address) external;
     function setFeeToSetter(address) external;
 }
+
+// File contracts/ZapHandlerV1.sol
+// License-Identifier: MIT
+
+pragma solidity ^0.8.6;
+
+
+
+
 
 /**
  * @notice The ZapHandlerV1 is the first implementation of the Violin Zap protocol.
@@ -1631,6 +1682,9 @@ contract ZapHandlerV1 is Ownable, IZapHandler, ReentrancyGuard {
     /// @dev Returns whether `token` is a pair or not. If it is a pair, stores the pairInfo.
     function getPair(IERC20 token) private returns (bool) {
         IUniswapV2Pair pair = IUniswapV2Pair(address(token));
+        // WETH has fallback function
+        if (token == mainToken)
+            return false;
         try pair.getReserves() {
             // get token0
             try pair.token0() returns (address token0) {
